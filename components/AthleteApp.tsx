@@ -1,20 +1,21 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { addDays, weekStart } from "../src/model.js";
 import {
-  workouts as fixture,
-  DEMO_TODAY,
-  addDays,
-  weekStart,
-  inWeek,
-  summarize,
-  isComplete,
-  loadLogs,
-  history,
-} from "../src/model.js";
-import type { Tab, Session, FeedbackMap } from "../lib/types";
+  localDate,
+  activityTotals,
+  paceLabel,
+  periodActivities,
+  volumeSeries,
+} from "../src/activity-stats.js";
+import type {
+  Activity,
+  ImportedHistory,
+  RunningWorkout,
+  Tab,
+} from "../lib/types";
 import Connections from "./Connections";
-const workouts: Session[] = fixture;
 const dates = (iso: string, options: Intl.DateTimeFormatOptions = {}) =>
   new Intl.DateTimeFormat("en", {
     month: "short",
@@ -23,9 +24,7 @@ const dates = (iso: string, options: Intl.DateTimeFormatOptions = {}) =>
     ...options,
   }).format(new Date(iso + "T12:00:00Z"));
 const minutes = (n: number) =>
-  n >= 60
-    ? `${Math.floor(n / 60)}h ${Math.round(n % 60)}m`
-    : `${Math.round(n)} min`;
+  `${Math.floor(Math.round(n) / 60) ? `${Math.floor(Math.round(n) / 60)}h ` : ""}${Math.round(n) % 60} min`;
 const tabs = [
   { id: "today", href: "/", label: "Today", symbol: "☀" },
   { id: "calendar", href: "/calendar", label: "Calendar", symbol: "▦" },
@@ -36,139 +35,132 @@ const tabs = [
     symbol: "↗",
   },
 ];
-function Heading({
-  title,
-  kicker,
-  children,
-}: {
-  title: string;
-  kicker: string;
-  children: React.ReactNode;
-}) {
+function ActivityCard({ activity }: { activity: Activity }) {
   return (
-    <div className="page-heading">
-      <div>
-        <p className="eyebrow">{kicker}</p>
-        <h1>{title}</h1>
-        <p className="subtitle">{children}</p>
-      </div>
-    </div>
-  );
-}
-function Card({
-  workout,
-  logs,
-  onOpen,
-}: {
-  workout: Session;
-  logs: FeedbackMap;
-  onOpen: (w: Session) => void;
-}) {
-  return (
-    <button className="workout-card" onClick={() => onOpen(workout)}>
-      <span
-        className={`activity-icon ${workout.type === "Strength" ? "lavender" : ""}`}
-      >
-        {workout.type === "Strength" ? "◇" : "↗"}
-      </span>
+    <article className="workout-card">
+      <span className="activity-icon">↗</span>
       <span className="workout-info">
         <span className="card-category">
-          {workout.type} ·{" "}
-          {isComplete(workout, logs) ? "Completed" : "Scheduled"}
+          {activity.sport} · Completed · {dates(localDate(activity.start))}
         </span>
-        <strong>{workout.title}</strong>
+        <strong>{activity.name}</strong>
         <span className="card-meta">
-          {workout.km ? `${workout.km.toFixed(1)} km · ` : ""}
-          {minutes(workout.minutes)}
-          {workout.pace ? ` · ${workout.pace} /km` : ""}
+          {(activity.meters / 1000).toFixed(2)} km ·{" "}
+          {minutes(activity.seconds / 60)}
+          {activity.sport === "run" && activity.meters > 0
+            ? ` · ${paceLabel(activity.seconds / (activity.meters / 1000))} /km`
+            : ""}
         </span>
       </span>
-      <span className="card-end">{isComplete(workout, logs) ? "✓" : "→"}</span>
-    </button>
+      <span className="card-end">✓</span>
+    </article>
+  );
+}
+function PlanCard({ plan }: { plan: RunningWorkout }) {
+  return (
+    <article className="workout-card">
+      <span className="activity-icon lavender">◇</span>
+      <span className="workout-info">
+        <span className="card-category">
+          Running workout · Planned · {dates(plan.date)}
+        </span>
+        <strong>{plan.title}</strong>
+        <span className="card-meta">
+          {minutes(plan.steps.reduce((n, s) => n + s.seconds, 0) / 60)} ·{" "}
+          {plan.steps.length} steps
+        </span>
+      </span>
+    </article>
   );
 }
 export default function AthleteApp({ tab }: { tab: Tab }) {
-  const [logs, setLogs] = useState<FeedbackMap>({}),
-    [week, setWeek] = useState(weekStart(DEMO_TODAY)),
-    [period, setPeriod] = useState<"week" | "month">("week"),
-    [selected, setSelected] = useState<Session | null>(null),
-    [message, setMessage] = useState("");
-  const dialog = useRef<HTMLDialogElement>(null);
+  // Dates are initialized after hydration using the athlete's browser timezone.
+  const [today, setToday] = useState(""),
+    [week, setWeek] = useState(""),
+    [period, setPeriod] = useState<"week" | "month">("week");
+  const [activities, setActivities] = useState<Activity[]>([]),
+    [plans, setPlans] = useState<RunningWorkout[]>([]),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState("");
   useEffect(() => {
-    try {
-      setLogs(loadLogs(window.localStorage));
-    } catch {
-      setMessage("Browser storage is unavailable.");
-    }
-    if (
-      location.hash &&
-      ["#today", "#calendar", "#performance"].includes(location.hash)
-    ) {
-      const target =
-        location.hash === "#today" ? "/" : `/${location.hash.slice(1)}`;
-      if (location.pathname !== target)
-        location.replace(target + location.search);
-    }
-  }, []);
-  useEffect(() => {
-    if (selected) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [selected]);
-  const card = (w: Session) => (
-    <Card key={w.id} workout={w} logs={logs} onOpen={setSelected} />
-  );
-  const weekly = inWeek(workouts, weekStart(DEMO_TODAY));
-  const stats = summarize(weekly, logs);
-  const today = workouts.find((w) => w.date === DEMO_TODAY)!;
-  const list =
-    period === "week"
-      ? weekly
-      : workouts.filter((w) => w.date.startsWith("2026-10"));
-  const totals = summarize(list, logs);
-  const bars =
-    period === "week"
-      ? [...history, totals.km]
-      : [42, 58, 64, 78, 86, totals.km];
-  const labels =
-    period === "week"
-      ? ["Sep 14", "Sep 21", "Sep 28", "Oct 5", "Oct 12", "Oct 19", "Oct 26"]
-      : ["May", "Jun", "Jul", "Aug", "Sep", "Oct"];
-  const nav = (
-    <>
-      {tabs.map((t) => (
-        <Link
-          key={t.id}
-          href={t.href}
-          className={`nav-link ${tab === t.id ? "active" : ""}`}
-          aria-current={tab === t.id ? "page" : undefined}
-        >
-          <span aria-hidden="true">{t.symbol}</span>
-          <span>{t.label}</span>
-        </Link>
-      ))}
-    </>
-  );
-  function saveFeedback(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected) return;
-    const f = new FormData(event.currentTarget);
-    const next = {
-      ...logs,
-      [selected.id]: {
-        completed: f.get("completed") === "on",
-        effort: Number(f.get("effort")),
-        note: String(f.get("note") || "").trim(),
-      },
+    const update = () => {
+      const date = localDate();
+      setToday(date);
+      setWeek((current) => current || weekStart(date));
     };
-    try {
-      localStorage.setItem("runninggem.logs.v1", JSON.stringify(next));
-      setLogs(next);
-      setSelected(null);
-      setMessage("Session feedback saved on this browser.");
-    } catch {
-      setMessage("Could not save. Browser storage may be unavailable.");
-    }
-  }
+    update();
+    const timer = setInterval(update, 60000);
+    return () => clearInterval(timer);
+  }, []);
+  const receiveData = useCallback(
+    (history: ImportedHistory, workouts: RunningWorkout[]) => {
+      setActivities(history.activities);
+      setPlans(workouts);
+      setLoading(false);
+      setError("");
+    },
+    [],
+  );
+  const receiveError = useCallback(() => {
+    setActivities([]);
+    setPlans([]);
+    setLoading(false);
+    setError("Activity data could not be loaded. Refresh to retry.");
+  }, []);
+  const weekly = today
+    ? periodActivities(
+        activities,
+        weekStart(today),
+        addDays(weekStart(today), 7),
+      )
+    : [];
+  const stats = activityTotals(weekly);
+  const series = today ? volumeSeries(activities, today, period) : [];
+  const totals = series.at(-1) || activityTotals([]);
+  const todayActivities = today
+    ? periodActivities(activities, today, addDays(today, 1))
+    : [];
+  const upcoming = plans
+    .filter((p) => p.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nav = tabs.map((t) => (
+    <Link
+      key={t.id}
+      href={t.href}
+      className={`nav-link ${tab === t.id ? "active" : ""}`}
+      aria-current={tab === t.id ? "page" : undefined}
+    >
+      <span aria-hidden="true">{t.symbol}</span>
+      <span>{t.label}</span>
+    </Link>
+  ));
+  const empty = loading
+    ? "Loading your training…"
+    : error ||
+      "No imported activities in this period. Connect a provider or import older history below.";
+  const metrics = (value: ReturnType<typeof activityTotals>) => (
+    <div className="stats-row">
+      <div>
+        <strong>
+          {value.km.toFixed(1)}
+          <span>km</span>
+        </strong>
+        <small>RUNNING DISTANCE</small>
+      </div>
+      <div>
+        <strong>{minutes(value.minutes)}</strong>
+        <small>RUNNING TIME</small>
+      </div>
+      <div>
+        <strong>{value.runs}</strong>
+        <small>RUNS</small>
+      </div>
+      <div>
+        <strong>{paceLabel(value.pace)}</strong>
+        <small>AVERAGE PACE /KM</small>
+      </div>
+    </div>
+  );
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -182,12 +174,7 @@ export default function AthleteApp({ tab }: { tab: Tab }) {
           More running.
         </p>
         <nav aria-label="Main navigation">{nav}</nav>
-        <div className="sidebar-footer">
-          <span className="avatar">M</span>
-          <div>
-            Athlete pilot<small>São Paulo, BR</small>
-          </div>
-        </div>
+        <div className="sidebar-footer">Your connected training</div>
       </aside>
       <div className="workspace">
         <header className="topbar">
@@ -195,200 +182,134 @@ export default function AthleteApp({ tab }: { tab: Tab }) {
             runninggem<span className="pilot">PILOT</span>
           </Link>
           <span className="top-label">YOUR TRAINING, IN FOCUS</span>
-          <span className="demo-tag">Sample training plan</span>
+          <span className="demo-tag">Connected activity data</span>
         </header>
         <main id="app">
+          <div className="page-heading">
+            <div>
+              <p className="eyebrow">
+                {today ? dates(today, { year: "numeric" }) : "YOUR TRAINING"}
+              </p>
+              <h1>
+                {tab === "today"
+                  ? "One day at a time."
+                  : tab === "calendar"
+                    ? "Your week, laid out."
+                    : "Progress, at your pace."}
+              </h1>
+              <p className="subtitle">
+                Your imported training, in your local timezone.
+              </p>
+            </div>
+          </div>
+          {loading || error ? <p role="status">{empty}</p> : null}
           {tab === "today" ? (
             <>
-              <Heading
-                kicker="YOUR SAMPLE PLAN · OCTOBER 30"
-                title="One day at a time."
-              >
-                A little consistency goes a long way.
-              </Heading>
-              <div className="today-grid">
-                <section className="hero-card">
-                  <div className="hero-top">
-                    <span className="pill">
-                      {isComplete(today, logs)
-                        ? "SESSION COMPLETE"
-                        : "TODAY’S SESSION"}
-                    </span>
-                    <span className="hero-sport">◇ Strength</span>
-                  </div>
-                  <div className="hero-art" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="hero-content">
-                    <h2>
-                      Build your
-                      <br />
-                      foundation.
-                    </h2>
-                    <p>
-                      Strong legs. Steady strides.
-                      <br />A little work that goes a long way.
-                    </p>
-                    <div className="hero-metrics">
-                      <div>
-                        <strong>
-                          35<span>min</span>
-                        </strong>
-                        <small>DURATION</small>
-                      </div>
-                      <div>
-                        <strong>5</strong>
-                        <small>MOVEMENTS</small>
-                      </div>
-                      <div>
-                        <strong>Easy</strong>
-                        <small>INTENSITY</small>
-                      </div>
-                    </div>
-                    <button
-                      className="primary"
-                      onClick={() => setSelected(today)}
-                    >
-                      View session →
-                    </button>
-                  </div>
-                </section>
-                <section className="week-card panel">
-                  <div className="section-top">
-                    <h2>Your week</h2>
-                    <span>Oct 26 – Nov 1</span>
-                  </div>
-                  <div className="week-strip">
-                    {Array.from({ length: 7 }, (_, i) => {
-                      const d = addDays(weekStart(DEMO_TODAY), i);
-                      return (
-                        <Link
-                          key={d}
-                          href="/calendar"
-                          className={`day-dot ${d === DEMO_TODAY ? "selected" : ""}`}
-                          aria-label={`View ${dates(d)} in calendar`}
-                        >
-                          <small>
-                            {dates(d, { weekday: "short" }).slice(0, 1)}
-                          </small>
-                          <strong>{Number(d.slice(-2))}</strong>
-                          <span>•</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                  <div className="week-distance">
-                    <strong>
-                      {stats.km}
-                      <span> / {weekly.reduce((n, w) => n + w.km, 0)} km</span>
-                    </strong>
-                  </div>
-                  <div className="progress-track">
-                    <span
-                      style={{
-                        width: `${(stats.km / weekly.reduce((n, w) => n + w.km, 0)) * 100}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="week-bottom">
-                    <span>
-                      {stats.activities} of {weekly.length} sessions done
-                    </span>
-                    <Link href="/calendar">See calendar →</Link>
-                  </div>
-                </section>
-              </div>
+              <section className="panel performance-panel">
+                <div className="section-top">
+                  <h2>Your week</h2>
+                  <span>
+                    {today
+                      ? `${dates(weekStart(today))} – ${dates(addDays(weekStart(today), 6))}`
+                      : ""}
+                  </span>
+                </div>
+                {metrics(stats)}
+                <Link href="/calendar">See calendar →</Link>
+              </section>
               <div className="section-top upcoming-heading">
-                <h2>Coming up</h2>
+                <h2>Completed today</h2>
               </div>
-              {workouts
-                .filter((w) => w.date > DEMO_TODAY)
-                .slice(0, 2)
-                .map(card)}
+              {todayActivities.length ? (
+                todayActivities.map((a) => (
+                  <ActivityCard key={a.id} activity={a} />
+                ))
+              ) : (
+                <p>{loading ? "Loading…" : "No activities recorded today."}</p>
+              )}
+              <div className="section-top upcoming-heading">
+                <h2>Planned workouts</h2>
+              </div>
+              {upcoming.length ? (
+                upcoming
+                  .slice(0, 3)
+                  .map((p) => <PlanCard key={p.id} plan={p} />)
+              ) : (
+                <p>
+                  No upcoming workouts saved. Create one in Connections &amp;
+                  sync.
+                </p>
+              )}
             </>
           ) : null}
-          {tab === "calendar" ? (
-            <>
-              <Heading
-                kicker="MAKE ROOM FOR YOURSELF"
-                title="Your week, laid out."
-              >
-                A rhythm you can return to.
-              </Heading>
-              <section className="panel calendar-panel">
-                <div className="calendar-toolbar">
-                  <h2>
-                    {dates(week)} – {dates(addDays(week, 6))}
-                  </h2>
-                  <div className="week-controls">
-                    <button
-                      className="icon-button"
-                      aria-label="Previous week"
-                      onClick={() => setWeek(addDays(week, -7))}
-                    >
-                      ←
-                    </button>
-                    <button
-                      className="text-button"
-                      onClick={() => setWeek(weekStart(DEMO_TODAY))}
-                    >
-                      Sample week
-                    </button>
-                    <button
-                      className="icon-button"
-                      aria-label="Next week"
-                      onClick={() => setWeek(addDays(week, 7))}
-                    >
-                      →
-                    </button>
-                  </div>
+          {tab === "calendar" && week ? (
+            <section className="panel calendar-panel">
+              <div className="calendar-toolbar">
+                <h2>
+                  {dates(week)} – {dates(addDays(week, 6))}
+                </h2>
+                <div className="week-controls">
+                  <button
+                    className="icon-button"
+                    aria-label="Previous week"
+                    onClick={() => setWeek(addDays(week, -7))}
+                  >
+                    ←
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => setWeek(weekStart(today))}
+                  >
+                    This week
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Next week"
+                    onClick={() => setWeek(addDays(week, 7))}
+                  >
+                    →
+                  </button>
                 </div>
-                <div className="agenda">
-                  {Array.from({ length: 7 }, (_, i) => {
-                    const d = addDays(week, i),
-                      items = workouts.filter((w) => w.date === d);
-                    return (
-                      <div
-                        key={d}
-                        className={`agenda-row ${d === DEMO_TODAY ? "is-today" : ""}`}
-                      >
-                        <div className="agenda-date">
-                          <small>
-                            {dates(d, { weekday: "short" }).split(",")[0]}
-                          </small>
-                          <strong>{Number(d.slice(-2))}</strong>
-                        </div>
-                        <div className="agenda-sessions">
-                          {items.length ? (
-                            items.map(card)
-                          ) : (
-                            <span className="rest-label">
-                              Rest & recharge <span>Room to recover.</span>
-                            </span>
-                          )}
-                        </div>
+              </div>
+              <div className="agenda">
+                {Array.from({ length: 7 }, (_, i) => {
+                  const day = addDays(week, i),
+                    items = periodActivities(activities, day, addDays(day, 1)),
+                    scheduled = plans.filter((p) => p.date === day);
+                  return (
+                    <div
+                      key={day}
+                      className={`agenda-row ${day === today ? "is-today" : ""}`}
+                    >
+                      <div className="agenda-date">
+                        <small>{dates(day, { weekday: "short" })}</small>
+                        <strong>{Number(day.slice(-2))}</strong>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            </>
+                      <div className="agenda-sessions">
+                        {items.map((a) => (
+                          <ActivityCard key={a.id} activity={a} />
+                        ))}
+                        {scheduled.map((p) => (
+                          <PlanCard key={p.id} plan={p} />
+                        ))}
+                        {!items.length && !scheduled.length ? (
+                          <span className="rest-label">
+                            No activity or workout recorded.
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           ) : null}
           {tab === "performance" ? (
             <>
-              <Heading
-                kicker="THE BIGGER PICTURE"
-                title="Progress, at your pace."
-              >
-                Your imported activities appear below; the chart and records
-                here are sample data.
-              </Heading>
               <section className="panel performance-panel">
                 <div className="section-top">
                   <div>
-                    <span className="eyebrow">SAMPLE RUNNING VOLUME</span>
+                    <span className="eyebrow">RUNNING VOLUME</span>
                     <h2>{period === "week" ? "This week" : "This month"}</h2>
                   </div>
                   <div
@@ -408,178 +329,67 @@ export default function AthleteApp({ tab }: { tab: Tab }) {
                     ))}
                   </div>
                 </div>
-                <div className="stats-row">
-                  <div>
-                    <strong>
-                      {totals.km.toFixed(1)}
-                      <span>km</span>
-                    </strong>
-                    <small>DISTANCE</small>
-                  </div>
-                  <div>
-                    <strong>{minutes(totals.minutes)}</strong>
-                    <small>ACTIVE TIME</small>
-                  </div>
-                  <div>
-                    <strong>{totals.activities}</strong>
-                    <small>SESSIONS</small>
-                  </div>
-                </div>
+                {metrics(totals)}
                 <div
                   className="bar-chart"
                   role="img"
-                  aria-label={bars
-                    .map((n, i) => `${labels[i]}: ${n} km`)
+                  aria-label={series
+                    .map((s) => `${s.start}: ${s.km.toFixed(1)} km`)
                     .join("; ")}
                 >
-                  {bars.map((n, i) => (
-                    <div key={labels[i]} className="chart-column">
-                      <span className="bar-value">{n}</span>
+                  {series.map((s, i) => (
+                    <div key={s.start} className="chart-column">
+                      <span className="bar-value">{s.km.toFixed(1)}</span>
                       <div
-                        className={`bar ${i === bars.length - 1 ? "current" : ""}`}
+                        className={`bar ${i === series.length - 1 ? "current" : ""}`}
                         style={{
-                          height: Math.max((n / Math.max(...bars, 1)) * 155, 2),
+                          height: Math.max(
+                            (s.km / Math.max(...series.map((v) => v.km), 1)) *
+                              155,
+                            2,
+                          ),
                         }}
                       />
-                      <small>{labels[i]}</small>
+                      <small>
+                        {dates(
+                          s.start,
+                          period === "month"
+                            ? { day: undefined, month: "short" }
+                            : {},
+                        )}
+                      </small>
                     </div>
                   ))}
                 </div>
+                {totals.runs === 0 ? <p>{empty}</p> : null}
+                <p className="local-note">
+                  Running totals use imported history only. Average pace is
+                  total running time divided by total distance. Import older
+                  history for a fuller chart.
+                </p>
               </section>
               <div className="section-top upcoming-heading">
-                <h2>Personal bests · sample records</h2>
+                <h2>Recent activities</h2>
               </div>
-              <section className="records">
-                {[
-                  {
-                    label: "5 KILOMETERS",
-                    time: "28:42",
-                    date: "September 12, 2026",
-                  },
-                  {
-                    label: "10 KILOMETERS",
-                    time: "59:18",
-                    date: "October 4, 2026",
-                  },
-                  {
-                    label: "HALF MARATHON",
-                    time: "2:12:06",
-                    date: "October 18, 2026",
-                  },
-                ].map((r) => (
-                  <div className="record" key={r.label}>
-                    <span>↗</span>
-                    <small>{r.label}</small>
-                    <strong>{r.time}</strong>
-                    <p>{r.date}</p>
-                  </div>
-                ))}
-              </section>
-              <div className="section-top upcoming-heading">
-                <h2>Recent sample sessions</h2>
-              </div>
-              {workouts
-                .filter((w) => isComplete(w, logs))
-                .slice()
-                .reverse()
-                .slice(0, 3)
-                .map(card)}
+              {activities.length ? (
+                activities
+                  .slice(0, 5)
+                  .map((a) => <ActivityCard key={a.id} activity={a} />)
+              ) : (
+                <p>{empty}</p>
+              )}
             </>
           ) : null}
-          <Connections tab={tab} />
+          <Connections tab={tab} onData={receiveData} onError={receiveError} />
           <p className="footnote">
-            The sample plan is frozen at October 30, 2026. Imported activities
-            and your saved workouts are kept separate.
-          </p>
-          <p role="status" aria-live="polite">
-            {message}
+            Matching activities from Strava and Garmin count once. Planned
+            workouts are separate from completed activity totals.
           </p>
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Mobile navigation">
         {nav}
       </nav>
-      <dialog
-        aria-label="Session details"
-        ref={dialog}
-        onCancel={() => setSelected(null)}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            const r = e.currentTarget.getBoundingClientRect();
-            if (
-              e.clientX < r.left ||
-              e.clientX > r.right ||
-              e.clientY < r.top ||
-              e.clientY > r.bottom
-            )
-              setSelected(null);
-          }
-        }}
-      >
-        <div id="dialog-content">
-          {selected ? (
-            <>
-              <div className="modal-top">
-                <span className="eyebrow">
-                  {dates(selected.date)} · {selected.type}
-                </span>
-                <button
-                  className="icon-button"
-                  aria-label="Close workout"
-                  onClick={() => setSelected(null)}
-                >
-                  ×
-                </button>
-              </div>
-              <h2>{selected.title}</h2>
-              <p>
-                {selected.description ||
-                  "Keep the effort comfortable and consistent."}
-              </p>
-              <ol className="session-steps">
-                {(
-                  selected.steps || [
-                    `${selected.minutes} min · ${selected.type}`,
-                  ]
-                ).map((step, i) => (
-                  <li key={i}>{step}</li>
-                ))}
-              </ol>
-              <form key={selected.id} onSubmit={saveFeedback}>
-                <label htmlFor="effort">Effort (1–10)</label>
-                <input
-                  id="effort"
-                  name="effort"
-                  type="range"
-                  min="1"
-                  max="10"
-                  defaultValue={logs[selected.id]?.effort || 5}
-                />
-                <label htmlFor="note">Your notes</label>
-                <textarea
-                  id="note"
-                  name="note"
-                  rows={3}
-                  maxLength={1000}
-                  defaultValue={logs[selected.id]?.note || ""}
-                />
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    name="completed"
-                    defaultChecked={isComplete(selected, logs)}
-                  />
-                  Mark session completed
-                </label>
-                <button className="primary">Save session</button>
-                <p className="local-note">
-                  Feedback is saved on this browser only.
-                </p>
-              </form>
-            </>
-          ) : null}
-        </div>
-      </dialog>
     </div>
   );
 }

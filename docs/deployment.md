@@ -53,3 +53,15 @@ A Garmin identity may be linked to one Strava athlete at a time. Revoke it from 
 ## Verification
 
 Run `npm run check`, `npm test`, `npm run test:python`, `npm run build` and `npm run test:web`. OAuth tests mock the providers and Redis, checking replay/CSRF defenses, consent denial, PKCE, provider identities, permission storage, revocation and concurrent user-data isolation. Production HTTP checks verify pages and the Next.js API boundaries. Live OAuth, device receipt and new React interactions require verification after app credentials and storage are provisioned.
+
+## Real activity dashboard and Garmin Personal API
+
+Today, Calendar and Performance use deduplicated imported activity history and saved plans; fixture data and sample personal bests are no longer rendered. Running totals exclude other sports and planned sessions. Dates and week/month grouping follow the browser timezone; average pace is total running seconds divided by total running kilometers. Charts show only imported coverage, with empty periods at zero.
+
+For personal Garmin import, retain `GARMIN_CONNECT_API_KEY` and set `GARMIN_PERSONAL_STRAVA_ID` to the numeric athlete ID from your Strava profile URL (`https://www.strava.com/athletes/123456`). This binding is mandatory: no first-user claiming, automatic account matching, or access for other athletes. The signed-in status endpoint returns the session's own `athlete` value (`strava:123456`) for verification. Configure the binding in Production and only in previews intentionally using the same personal key, then deploy. The personal sync button appears only for that account. Never put the key in a public environment variable or paste it into the browser.
+
+Select **Sync Garmin data** to import the newest 100 activities and seven days of daily health summaries (São Paulo calendar dates). **Load older Garmin history** imports another page of 100. Activity IDs make repeated imports idempotent; cross-provider matching prevents double-counting. Token responses are raw JWTs; tokens are encrypted in per-athlete Redis, capped at 24 hours, renewed before expiry, and replaced once on a rejected request. Key rotation invalidates token caches through a fingerprint. Partial health failures retain the previous summary and display a warning; missing metrics display a dash. Clearing Garmin imports removes local history, health and cached tokens without revoking the key at Garmin.
+
+The Personal API reads your own data; it provides neither social consent for other Garmin accounts nor scheduled workout delivery. Business OAuth remains separate. If the owner ID changes, deliberately clear the former owner's imported Garmin records first; changing a binding does not migrate personal data between accounts.
+
+Sources: Garmin's [Personal API Swagger](https://developer.garmin.com/gc-developer-program/personal/swagger-docs/) (`UserDailySummaryV2DTO`, `MovementValueV2DTO`, `HeartRateV2DTO`, `BodyBatteryV2DTO`) and [official sample client](https://github.com/garmin/connect-personal-api-python).

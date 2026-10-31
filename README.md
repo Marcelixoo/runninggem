@@ -29,11 +29,11 @@ npm run test:web
 
 Continue with Strava replaces the shared pilot password. OAuth consent creates a signed athlete session; imported history, credentials, workouts and delivery receipts are stored in separate per-athlete namespaces. Garmin authorization uses its official OAuth 2.0 PKCE consent flow and stores the granted permissions. Garmin credentials are never entered into Runninggem for this flow.
 
-Provider client credentials, the session/encryption key and persistent Redis are still required. The official Garmin OAuth grant is separate from the existing unofficial Python sync adapter: it does not make private Garmin endpoints accept official developer tokens. Official data delivery remains pending the registered application's API contracts/access. The optional experimental adapter is disabled by default and can be enabled explicitly. Apple Health remains excluded.
+Strava client credentials, the session/encryption key and persistent Redis are required. The official Garmin OAuth grant is separate from the existing unofficial Python sync adapter: it does not make private Garmin endpoints accept official developer tokens. Official data delivery remains pending the registered application's API contracts/access. The optional experimental adapter is disabled by default and can be enabled explicitly. Apple Health remains excluded.
 
 ## Next.js migration (v0.3)
 
-Next.js App Router + React + TypeScript own the app shell, Today (`/`), Calendar (`/calendar`), Performance (`/performance`), workout feedback, connections, history and workout builder. The TypeScript `/api/sync` route exposes the existing tested provider service; reusable model, encryption and storage utilities remain JavaScript with typed model contracts. Garmin stays in `api/garmin.py`.
+Next.js App Router + React + TypeScript own the app shell, Today (`/`), Calendar (`/calendar`), Performance (`/performance`), connections, history and workout builder. The TypeScript `/api/sync` route exposes the existing tested provider service; reusable model, encryption and storage utilities remain JavaScript with typed model contracts. Garmin stays in `api/garmin.py`.
 
 GitHub `main` is the deployment source for Vercel. The production build must pass before publishing. No manual Drop deployments are used for this version.
 
@@ -81,3 +81,9 @@ Bootstrapped October 30, 2026. First milestone: validate athlete usability befor
 ## Rights
 
 Licensed under the MIT license already selected for this repository; see LICENSE. Third-party trademarks belong to their respective owners. System fonts are available as fallback if the optional Google Fonts stylesheet is unavailable.
+
+## Connected training dashboard
+
+Today, Calendar and Performance now use imported activities and saved running workouts. Running volume and pace exclude planned sessions and other sports; duplicate Strava/Garmin imports count once. No sample plan or personal records appear in the live dashboard.
+
+For your own Garmin activity and health imports, set `GARMIN_CONNECT_API_KEY` and `GARMIN_PERSONAL_STRAVA_ID` in Vercel, then deploy. The latter is your numeric Strava athlete ID and restricts the server's personal Garmin key to that account. Use **Sync Garmin data** and **Load older Garmin history** after signing in. Business OAuth and workout delivery are separate from personal read access. See [deployment setup](docs/deployment.md).

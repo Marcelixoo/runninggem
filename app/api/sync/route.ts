@@ -1,5 +1,6 @@
 import handleSync from "../../../lib/sync-core.js";
 export const runtime = "nodejs";
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 // Preserve the tested provider service while exposing a Web Request/Response route.
 async function handle(request: Request): Promise<Response> {

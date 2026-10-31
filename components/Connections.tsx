@@ -51,7 +51,15 @@ function newWorkout(): RunningWorkout {
     ],
   };
 }
-export default function Connections({ tab }: { tab: Tab }) {
+export default function Connections({
+  tab,
+  onData,
+  onError,
+}: {
+  tab: Tab;
+  onData: (history: ImportedHistory, plans: RunningWorkout[]) => void;
+  onError: () => void;
+}) {
   const [status, setStatus] = useState(initial),
     [history, setHistory] = useState<ImportedHistory>({
       activities: [],
@@ -79,9 +87,11 @@ export default function Connections({ tab }: { tab: Tab }) {
       ]);
       setHistory(h);
       setPlans(p.workouts);
+      onData(h, p.workouts);
     } else {
       setHistory({ activities: [], health: null });
       setPlans([]);
+      onData({ activities: [], health: null }, []);
     }
     return s;
   }
@@ -104,16 +114,20 @@ export default function Connections({ tab }: { tab: Tab }) {
           if (active) {
             setHistory(h);
             setPlans(p.workouts);
+            onData(h, p.workouts);
           }
-        }
+        } else onData({ activities: [], health: null }, []);
       })
       .catch(() => {
-        if (active) setMessage("Connections are temporarily unavailable.");
+        if (active) {
+          setMessage("Connections are temporarily unavailable.");
+          onError();
+        }
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [onData, onError]);
   useEffect(() => {
     if (mode) dialog.current?.showModal();
     else dialog.current?.close();
@@ -159,11 +173,15 @@ export default function Connections({ tab }: { tab: Tab }) {
       nextStart?: number | null;
       warning?: string;
     }>(
-      isStrava ? "strava-import" : "",
+      isStrava
+        ? "strava-import"
+        : status.garminPersonalAvailable
+          ? "garmin-personal-import"
+          : "",
       isStrava
         ? { page: older ? page : 1 }
         : { action: "import", start: older ? offset : 0 },
-      !isStrava,
+      !isStrava && !status.garminPersonalAvailable,
     );
     if (isStrava) setPage(data.nextPage ?? null);
     else setOffset(data.nextStart ?? null);
@@ -186,6 +204,10 @@ export default function Connections({ tab }: { tab: Tab }) {
               onClick={() =>
                 perform(async () => {
                   await api("logout", {});
+                  setStatus(initial);
+                  setHistory({ activities: [], health: null });
+                  setPlans([]);
+                  onData({ activities: [], health: null }, []);
                   await refresh();
                   setMessage("Signed out.");
                 })
@@ -316,56 +338,106 @@ export default function Connections({ tab }: { tab: Tab }) {
                   </article>
                 );
               })}
-              <article>
-                <h3>Garmin authorization</h3>
-                <p>
-                  {status.garminAuthorized
-                    ? "Authorized through Garmin"
-                    : "Authorize directly on Garmin’s consent page. Your Garmin password stays with Garmin."}
-                </p>
-                {status.garminAuthorized ? (
-                  <>
-                    <p className="local-note">
-                      Granted permissions:{" "}
-                      {(status.garminPermissions || []).join(", ") ||
-                        "None reported"}
+              {status.garminPersonalAvailable ? (
+                <article>
+                  <h3>Garmin personal sync</h3>
+                  <p>Your activities and health data · Personal API</p>
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={() => perform(() => importHistory("garmin"))}
+                  >
+                    Sync Garmin data
+                  </button>
+                  {history.garminLast ? (
+                    <small>
+                      Last import:{" "}
+                      {new Date(history.garminLast).toLocaleString()}
+                    </small>
+                  ) : null}
+                  <button
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() =>
+                      perform(async () => {
+                        await api("garmin-personal-clear", {});
+                        await refresh();
+                        setMessage(
+                          "Garmin imports cleared. Your personal key remains active in Garmin Connect.",
+                        );
+                      })
+                    }
+                  >
+                    Clear Garmin imports
+                  </button>
+                  <p className="local-note">
+                    Read access to your own account. Workout delivery requires a
+                    separate Garmin app integration.
+                  </p>
+                </article>
+              ) : null}
+              {!status.garminPersonalAvailable || status.garminAuthorized ? (
+                <article>
+                  <h3>Garmin authorization</h3>
+                  {status.garminPersonalSetupRequired ? (
+                    <p>
+                      Personal sync is waiting to be linked to your Runninggem
+                      account. Your Strava athlete ID is{" "}
+                      {status.athlete?.replace("strava:", "")}.
                     </p>
-                    <button
-                      className="text-button"
-                      disabled={busy}
-                      onClick={() =>
-                        perform(async () => {
-                          await api("disconnect", { provider: "garmin" });
-                          await refresh();
-                          setMessage("Garmin authorization revoked.");
-                        })
-                      }
+                  ) : null}
+                  <p>
+                    {status.garminAuthorized
+                      ? "Authorized through Garmin"
+                      : "Authorize directly on Garmin’s consent page. Your Garmin password stays with Garmin."}
+                  </p>
+                  {status.garminAuthorized ? (
+                    <>
+                      <p className="local-note">
+                        Granted permissions:{" "}
+                        {(status.garminPermissions || []).join(", ") ||
+                          "None reported"}
+                      </p>
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={() =>
+                          perform(async () => {
+                            await api("disconnect", { provider: "garmin" });
+                            await refresh();
+                            setMessage("Garmin authorization revoked.");
+                          })
+                        }
+                      >
+                        Revoke Garmin access
+                      </button>
+                      <p className="local-note">
+                        Authorization is saved. Official Garmin data sync and
+                        workout delivery require the corresponding API
+                        integration; this connection is separate from the
+                        optional experimental adapter.
+                      </p>
+                    </>
+                  ) : status.garminOAuthConfigured ? (
+                    <a
+                      className="primary"
+                      href="/api/sync?route=garmin-connect"
                     >
-                      Revoke Garmin access
-                    </button>
-                    <p className="local-note">
-                      Authorization is saved. Official Garmin data sync and
-                      workout delivery require the corresponding API
-                      integration; this connection is separate from the optional
-                      experimental adapter.
-                    </p>
-                  </>
-                ) : status.garminOAuthConfigured ? (
-                  <a className="primary" href="/api/sync?route=garmin-connect">
-                    Authorize Garmin Connect
-                  </a>
-                ) : (
-                  <>
-                    <button className="primary" disabled>
                       Authorize Garmin Connect
-                    </button>
-                    <p className="local-note">
-                      The app owner must register a Garmin developer application
-                      and configure its client credentials first.
-                    </p>
-                  </>
-                )}
-              </article>
+                    </a>
+                  ) : (
+                    <>
+                      <button className="primary" disabled>
+                        Authorize Garmin Connect
+                      </button>
+                      <p className="local-note">
+                        The app owner must register a Garmin developer
+                        application and configure its client credentials first.
+                      </p>
+                    </>
+                  )}
+                </article>
+              ) : null}
             </div>
             <div className="sync-actions">
               <button
@@ -445,7 +517,8 @@ export default function Connections({ tab }: { tab: Tab }) {
                   Load older Strava history
                 </button>
               ) : null}
-              {status.garminConnected && offset !== null ? (
+              {(status.garminPersonalAvailable || status.garminConnected) &&
+              offset !== null ? (
                 <button
                   disabled={busy}
                   className="text-button"

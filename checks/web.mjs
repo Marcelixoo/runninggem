@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
-const port = 20000 + Math.floor(Math.random()*30000);
+const port = 20000 + Math.floor(Math.random() * 30000);
 const server = spawn(
   process.execPath,
   [
@@ -19,6 +19,8 @@ const server = spawn(
       SESSION_SECRET: "",
       UPSTASH_REDIS_REST_URL: "",
       UPSTASH_REDIS_REST_TOKEN: "",
+      KV_REST_API_URL: "",
+      KV_REST_API_TOKEN: "",
     },
   },
 );
@@ -42,6 +44,11 @@ try {
     assert.equal(r.status, 200);
     const html = await r.text();
     assert.ok(!html.includes("Pilot password"));
+    assert.ok(!html.includes("Recent sample sessions"));
+    assert.ok(!html.includes("Personal bests · sample records"));
+    assert.ok(!html.includes("Pick up the pace"));
+    assert.ok(!html.includes("Build your foundation"));
+    assert.ok(html.includes("Connected activity data"));
     assert.ok(html.includes("Continue with Strava"));
     assert.ok(html.includes(title), `${path} server-rendered title`);
     assert.ok(

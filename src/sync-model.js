@@ -1,5 +1,6 @@
 export function normalize(source,a){
- const start=source==='strava'?a.start_date:a.startTimeGMT?.replace(' ','T')+'Z';
+ const raw=source==='strava'?a.start_date:a.startTimeGMT;
+ const start=typeof raw==='string'?raw.replace(' ','T')+(source==='garmin'&&!/(Z|[+-]\d{2}:?\d{2})$/.test(raw)?'Z':''):'';
  const id=String(source==='strava'?a.id:a.activityId);
  const meters=Number(a.distance),seconds=Number(source==='strava'?a.moving_time:a.duration);
  if(!id||id==='undefined'||!Number.isFinite(Date.parse(start))||!Number.isFinite(meters)||meters<0||!Number.isFinite(seconds)||seconds<0)return null;
