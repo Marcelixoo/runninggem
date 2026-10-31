@@ -1,5 +1,7 @@
 """Owner-only experimental Garmin adapter. Never logs provider responses or credentials."""
-import base64, hashlib, hmac, json, os, tempfile, time, urllib.request, uuid
+import base64, hashlib, hmac, json, os, tempfile, time, urllib.request, uuid, re
+from contextvars import ContextVar
+user_context=ContextVar("athlete",default=None)
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from datetime import date, timedelta
@@ -9,7 +11,10 @@ def redis(*command):
     with urllib.request.urlopen(req,timeout=15) as r: data=json.load(r)
     if 'error' in data: raise RuntimeError('Storage unavailable')
     return data.get('result')
-def key(n): return 'runninggem:pilot:'+n
+def key(n):
+    subject=user_context.get()
+    if not re.fullmatch(r'strava:[1-9][0-9]*',subject or ''): raise ValueError('Authenticated athlete required')
+    return 'runninggem:users:'+subject+':'+n
 def crypt_key(): return bytes.fromhex(os.environ['SESSION_SECRET'])
 def encrypt(value):
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -25,7 +30,7 @@ def authorized(cookie):
         body,mac=values['rg_session'].split('.')
         expected=base64.urlsafe_b64encode(hmac.new(crypt_key(),body.encode(),hashlib.sha256).digest()).decode().rstrip('=')
         data=json.loads(base64.urlsafe_b64decode(body+'='*((-len(body))%4)))
-        return hmac.compare_digest(expected,mac) and data.get('role')=='owner' and data['exp']>time.time()
+        return data['sub'] if hmac.compare_digest(expected,mac) and data.get('v')==2 and re.fullmatch(r'strava:[1-9][0-9]*',data.get('sub','')) and data['exp']>time.time() else None
     except Exception: return False
 
 def validate(w):
@@ -64,8 +69,11 @@ class handler(BaseHTTPRequestHandler):
     def respond(self,status,data):
         self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(json.dumps(data).encode())
     def do_POST(self):
-        if not authorized(self.headers.get('Cookie','')): return self.respond(401,{'error':'Unlock the pilot first'})
+        actor=authorized(self.headers.get('Cookie',''))
+        if not actor: return self.respond(401,{'error':'Sign in with Strava first'})
+        if os.environ.get('ENABLE_EXPERIMENTAL_GARMIN')!='true': return self.respond(503,{'error':'The unofficial Garmin adapter is disabled. Official OAuth authorization does not enable unofficial API calls.'})
         if self.headers.get('Origin')!=os.environ.get('APP_URL','').rstrip('/'): return self.respond(403,{'error':'Request origin rejected'})
+        context_token=user_context.set(actor)
         lock=None;lock_id=uuid.uuid4().hex
         try:
             length=int(self.headers.get('Content-Length','0'))
@@ -144,3 +152,4 @@ class handler(BaseHTTPRequestHandler):
             if lock:
                 try: redis('EVAL',"if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",1,lock,lock_id)
                 except Exception: pass
+            user_context.reset(context_token)

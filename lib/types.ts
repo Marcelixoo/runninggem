@@ -52,6 +52,11 @@ export interface ConnectionStatus {
   configured: boolean;
   authenticated: boolean;
   stravaConfigured: boolean;
+  garminOAuthConfigured?: boolean;
+  experimentalGarminEnabled?: boolean;
+  garminAuthorized?: boolean;
+  garminPermissions?: string[];
+  athlete?: string;
   stravaConnected?: boolean;
   garminConnected?: boolean;
 }

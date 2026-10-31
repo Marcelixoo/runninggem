@@ -93,8 +93,8 @@ export default function Connections({ tab }: { tab: Tab }) {
         setStatus(s);
         setMessage(
           s.configured
-            ? "Connect your accounts to bring your training together."
-            : "Demo mode · Configure the server to enable account connections.",
+            ? "Sign in and grant access directly with your training providers."
+            : "Account sign-in is waiting for the app’s server configuration.",
         );
         if (s.authenticated) {
           const [h, p] = await Promise.all([
@@ -187,11 +187,11 @@ export default function Connections({ tab }: { tab: Tab }) {
                 perform(async () => {
                   await api("logout", {});
                   await refresh();
-                  setMessage("Pilot locked.");
+                  setMessage("Signed out.");
                 })
               }
             >
-              Lock pilot
+              Sign out
             </button>
           ) : null}
         </div>
@@ -199,37 +199,41 @@ export default function Connections({ tab }: { tab: Tab }) {
           {message}
         </p>
         {!status.authenticated ? (
-          <form
-            className="pilot-unlock"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = e.currentTarget,
-                password = String(new FormData(f).get("password"));
-              void perform(async () => {
-                await api("login", { password });
-                f.reset();
-                await refresh();
-                setMessage("Pilot unlocked.");
-              });
-            }}
-          >
-            <label>
-              Pilot password
-              <input
-                type="password"
-                name="password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            <button className="primary" disabled={busy || !status.configured}>
-              Unlock connections
-            </button>
-          </form>
+          <div className="social-signin">
+            <p>
+              Sign in with Strava to create your Runninggem session and
+              authorize activity access. No Runninggem password is needed.
+            </p>
+            {status.configured && status.stravaConfigured ? (
+              <a
+                className="primary strava-login"
+                href="/api/sync?route=strava-connect"
+              >
+                Continue with Strava
+              </a>
+            ) : (
+              <button className="primary" disabled>
+                Continue with Strava
+              </button>
+            )}
+            {!status.configured || !status.stravaConfigured ? (
+              <p className="local-note">
+                The app owner needs to finish the server and Strava application
+                setup before sign-in is available.
+              </p>
+            ) : null}
+          </div>
         ) : (
           <>
             <div className="sync-connections">
-              {(["strava", "garmin"] as const).map((provider) => {
+              {(
+                [
+                  "strava",
+                  ...(status.experimentalGarminEnabled
+                    ? ["garmin" as const]
+                    : []),
+                ] as const
+              ).map((provider) => {
                 const connected =
                     provider === "strava"
                       ? status.stravaConnected
@@ -301,7 +305,7 @@ export default function Connections({ tab }: { tab: Tab }) {
                           setMode("garmin");
                         }}
                       >
-                        Connect Garmin
+                        Connect Garmin experimentally
                       </button>
                     )}
                     <small>
@@ -312,6 +316,56 @@ export default function Connections({ tab }: { tab: Tab }) {
                   </article>
                 );
               })}
+              <article>
+                <h3>Garmin authorization</h3>
+                <p>
+                  {status.garminAuthorized
+                    ? "Authorized through Garmin"
+                    : "Authorize directly on Garmin’s consent page. Your Garmin password stays with Garmin."}
+                </p>
+                {status.garminAuthorized ? (
+                  <>
+                    <p className="local-note">
+                      Granted permissions:{" "}
+                      {(status.garminPermissions || []).join(", ") ||
+                        "None reported"}
+                    </p>
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        perform(async () => {
+                          await api("disconnect", { provider: "garmin" });
+                          await refresh();
+                          setMessage("Garmin authorization revoked.");
+                        })
+                      }
+                    >
+                      Revoke Garmin access
+                    </button>
+                    <p className="local-note">
+                      Authorization is saved. Official Garmin data sync and
+                      workout delivery require the corresponding API
+                      integration; this connection is separate from the optional
+                      experimental adapter.
+                    </p>
+                  </>
+                ) : status.garminOAuthConfigured ? (
+                  <a className="primary" href="/api/sync?route=garmin-connect">
+                    Authorize Garmin Connect
+                  </a>
+                ) : (
+                  <>
+                    <button className="primary" disabled>
+                      Authorize Garmin Connect
+                    </button>
+                    <p className="local-note">
+                      The app owner must register a Garmin developer application
+                      and configure its client credentials first.
+                    </p>
+                  </>
+                )}
+              </article>
             </div>
             <div className="sync-actions">
               <button

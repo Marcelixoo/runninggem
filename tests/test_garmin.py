@@ -20,8 +20,8 @@ class FakeClient:
 class Tests(unittest.TestCase):
     def setUp(self):
         self.store={};FakeClient.uploads=FakeClient.schedules=0;FakeClient.fail_schedule=False;FakeClient.mfa=False
-        self.fake_redis=patch.object(g,'redis',self.redis);self.fake_redis.start();self.auth=patch.object(g,'authorized',lambda _:True);self.auth.start();self.garmin=patch('garminconnect.Garmin',FakeClient);self.garmin.start();os.environ['APP_URL']='https://pilot.test'
-    def tearDown(self): self.fake_redis.stop();self.auth.stop();self.garmin.stop()
+        self.fake_redis=patch.object(g,'redis',self.redis);self.fake_redis.start();self.auth=patch.object(g,'authorized',lambda _:'strava:123');self.auth.start();self.garmin=patch('garminconnect.Garmin',FakeClient);self.garmin.start();os.environ['APP_URL']='https://pilot.test';os.environ['ENABLE_EXPERIMENTAL_GARMIN']='true';self.scope=g.user_context.set('strava:123')
+    def tearDown(self): self.fake_redis.stop();self.auth.stop();self.garmin.stop();g.user_context.reset(self.scope)
     def redis(self,*args):
         cmd,k,*rest=args
         if cmd=='GET': return self.store.get(k)
@@ -47,4 +47,18 @@ class Tests(unittest.TestCase):
         self.request({'action':'connect'});FakeClient.fail_schedule=True;self.assertEqual(self.request({'action':'export','workout':W})[0],502);self.assertEqual(self.request({'action':'export','workout':W})[0],409);self.assertEqual(FakeClient.uploads,1);self.assertEqual(FakeClient.schedules,1)
     def test_import_stores_health_and_normalized_history(self):
         self.request({'action':'connect'});status,data=self.request({'action':'import','start':0});self.assertEqual(status,200);self.assertEqual(data['imported'],1);activity=g.decrypt(self.store[g.key('activities')+':garmin:1']);self.assertEqual(activity['meters'],5000);self.assertEqual(len(g.decrypt(self.store[g.key('health')])),7)
+    def test_old_shared_sessions_rejected_and_v2_identity_verified(self):
+        self.auth.stop()
+        def signed(data):
+            body=g.base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip('=')
+            mac=g.base64.urlsafe_b64encode(g.hmac.new(g.crypt_key(),body.encode(),g.hashlib.sha256).digest()).decode().rstrip('=')
+            return 'rg_session='+body+'.'+mac
+        self.assertIsNone(g.authorized(signed({'role':'owner','exp':g.time.time()+60})))
+        self.assertEqual(g.authorized(signed({'v':2,'sub':'strava:123','exp':g.time.time()+60})),'strava:123')
+        self.assertIsNone(g.authorized(signed({'v':2,'sub':'strava:123','exp':1})))
+    def test_experimental_adapter_is_disabled_by_default(self):
+        os.environ.pop('ENABLE_EXPERIMENTAL_GARMIN',None)
+        status,data=self.request({'action':'connect'})
+        self.assertEqual(status,503)
+        self.assertEqual(len(self.store),0)
 if __name__=='__main__': unittest.main()

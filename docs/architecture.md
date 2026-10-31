@@ -51,3 +51,11 @@ Next.js 16 App Router serves the three athlete pages with React client component
 The TypeScript sync route accepts Web Request/Response objects and adapts the existing tested provider service. It rejects oversized/malformed JSON and lets Next.js reject unsupported HTTP methods. Model, crypto and provider utilities retain their tested JavaScript implementations; pure model declaration files provide typed contracts to the React application. The Python Garmin function remains separate at the root API directory.
 
 Builds use the Next.js preset and a committed npm lockfile. GitHub main is the deployment path. Vercel variables and existing Redis records retain their names and formats, so reconnecting providers is not required solely because of the framework migration.
+
+## Social authentication and provider consent
+
+A Strava authorization callback now creates a version-2 signed athlete session instead of accepting a shared password. The same grant stores activity access. AsyncLocalStorage binds each Node request to a validated Strava subject; Python uses a request-local ContextVar for the same namespace. Private tokens, history, plans, locks and delivery receipts are separated by that identity. The old shared pilot session and namespace are not accepted or implicitly migrated.
+
+OAuth state is random, browser-bound, provider-bound, single use and time limited. Pending records and Garmin PKCE verifiers are encrypted. A provider link is bound to the athlete signed in when the flow started, and a changed session is rejected before exchanging credentials. Token responses stay server-side. Garmin’s stable user ID has a binding to one Strava account, preventing silent reassignment across app users. Multiple Set-Cookie headers are preserved by the Next.js route.
+
+Official Garmin authorization and unofficial Garmin sync are separate credentials and capabilities. The former uses developer OAuth and exposes granted permissions; the latter remains an opt-in Python experiment and is not automatically enabled by official consent. Official data-plane adapters remain contingent on registered API products and schemas.
