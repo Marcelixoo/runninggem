@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+.env*
+coverage/
+public/
+.vercel/
+.venv/
+__pycache__/
+*.pyc
+!.env.example
+.next/
+*.tsbuildinfo
