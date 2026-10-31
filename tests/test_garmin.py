@@ -62,3 +62,14 @@ class Tests(unittest.TestCase):
         self.assertEqual(status,503)
         self.assertEqual(len(self.store),0)
 if __name__=='__main__': unittest.main()
+
+class RedisConfigTests(unittest.TestCase):
+    def test_vercel_alias_pair_and_upstash_precedence(self):
+        with patch.dict(os.environ, {'KV_REST_API_URL':'https://kv.test','KV_REST_API_TOKEN':'write'}, clear=True):
+            self.assertEqual(g.redis_config(), ('https://kv.test','write'))
+            os.environ['UPSTASH_REDIS_REST_URL']='https://upstash.test'
+            self.assertEqual(g.redis_config(), ('https://kv.test','write'))
+            os.environ['UPSTASH_REDIS_REST_TOKEN']='primary'
+            self.assertEqual(g.redis_config(), ('https://upstash.test','primary'))
+        with patch.dict(os.environ, {'KV_REST_API_URL':'https://kv.test','KV_REST_API_READ_ONLY_TOKEN':'read'}, clear=True):
+            with self.assertRaises(RuntimeError): g.redis_config()

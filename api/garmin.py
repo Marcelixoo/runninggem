@@ -6,8 +6,14 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from datetime import date, timedelta
 
+def redis_config():
+    for url_key,token_key in [('UPSTASH_REDIS_REST_URL','UPSTASH_REDIS_REST_TOKEN'),('KV_REST_API_URL','KV_REST_API_TOKEN')]:
+        url,token=os.environ.get(url_key),os.environ.get(token_key)
+        if url and token: return url,token
+    raise RuntimeError('Persistent sync storage is not configured')
 def redis(*command):
-    req=urllib.request.Request(os.environ['UPSTASH_REDIS_REST_URL'],data=json.dumps(command).encode(),headers={'Authorization':'Bearer '+os.environ['UPSTASH_REDIS_REST_TOKEN'],'Content-Type':'application/json'})
+    url,token=redis_config()
+    req=urllib.request.Request(url,data=json.dumps(command).encode(),headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
     with urllib.request.urlopen(req,timeout=15) as r: data=json.load(r)
     if 'error' in data: raise RuntimeError('Storage unavailable')
     return data.get('result')
