@@ -20,8 +20,10 @@ async function handle(request: Request): Promise<Response> {
   let result = "";
   const input = { url: request.url, method: request.method, headers, body };
   const output = {
-    setHeader(name: string, value: string) {
-      outputHeaders.set(name, value);
+    setHeader(name: string, value: string | string[]) {
+      if (Array.isArray(value)) {
+        value.forEach((item) => outputHeaders.append(name, item));
+      } else outputHeaders.set(name, value);
     },
     writeHead(code: number, values: Record<string, string>) {
       status = code;

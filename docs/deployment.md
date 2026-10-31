@@ -1,51 +1,53 @@
-# Deployment and account setup
+# Deployment, social sign-in and provider authorization
 
-## Deploy
+Vercel project: runninggem (`prj_SxuZRDsNj5ZZtNWXzNWyiE8pRJ7Z`), team `team_51pKEZXqDadKaobNZil2P2Ba`. GitHub main triggers the production deployment; feature PRs get previews where enabled. Use Next.js, Node 22, `npm ci`, `npm run build` and the default Next.js output. Root `api/garmin.py` is the optional Python function.
 
-Vercel project: `runninggem` (`prj_SxuZRDsNj5ZZtNWXzNWyiE8pRJ7Z`). Team: `team_51pKEZXqDadKaobNZil2P2Ba`.
+## No pilot password
 
-Use the Next.js framework preset, Node.js 22, `npm ci`, `npm run build`, and the default Next.js output directory (no public override). The App Router serves `/`, `/calendar`, `/performance`, and `/api/sync`; Vercel also deploys root `api/garmin.py`. Python dependencies are in requirements.txt. Push to GitHub main to trigger the linked project autodeploy. Secrets stay in server modules and environment variables; no public-prefixed secret variables are used.
+Continue with Strava signs the athlete into Runninggem and requests profile/activity authorization. PILOT_PASSWORD is no longer used. Users do not need a separate Runninggem password.
 
-Vercel team authorization and GitHub write access are granted, and the repository is linked. This version is proposed on a feature branch; merging into main triggers the production autodeploy. Live provider connectivity has not yet been verified.
+Set these in Vercel Settings → Environment Variables and redeploy. Use Secret type for keys, tokens and client secrets. Use separate stores/credentials for production and previews.
 
-## Environment variables
+| Variable | Purpose |
+| --- | --- |
+| APP_URL | Stable exact HTTPS app origin, no trailing slash |
+| SESSION_SECRET | 32 cryptographically random bytes encoded as 64 hexadecimal characters; encrypts provider/user records and signs sessions |
+| UPSTASH_REDIS_REST_URL | Persistent Redis REST endpoint |
+| UPSTASH_REDIS_REST_TOKEN | Redis credential |
+| STRAVA_CLIENT_ID | Strava application ID |
+| STRAVA_CLIENT_SECRET | Strava application secret |
+| GARMIN_CLIENT_ID | Official Garmin developer application client ID |
+| GARMIN_CLIENT_SECRET | Official Garmin developer application secret |
+| ENABLE_EXPERIMENTAL_GARMIN | Optional, false/unset by default; true explicitly enables the unofficial Python adapter |
 
-Set in Vercel Settings → Environment Variables; redeploy after changes. Use separate production/preview stores and keys. Never paste credentials into chat or commit them.
+Changing SESSION_SECRET invalidates sessions and makes existing encrypted records unreadable. Preserve it across deployments.
 
-| Variable | Purpose | Type |
-| --- | --- | --- |
-| APP_URL | Exact origin, no trailing slash, e.g. the deployed HTTPS origin | Config |
-| SESSION_SECRET | 32 cryptographically random bytes, hex encoded (64 characters) | Secret |
-| PILOT_PASSWORD | Long random owner-only pilot password; enter it in the app to unlock | Secret |
-| UPSTASH_REDIS_REST_URL | Persistent Redis REST endpoint, provision through Vercel Marketplace | Config |
-| UPSTASH_REDIS_REST_TOKEN | Redis credential | Secret |
-| STRAVA_CLIENT_ID | Registered Strava application ID | Config |
-| STRAVA_CLIENT_SECRET | Registered Strava application secret | Secret |
+## Strava app registration
 
-Do not rotate SESSION_SECRET casually: it encrypts stored provider tokens, history, health and plans. Rotation requires reconnecting providers and reimporting/recreating encrypted records; otherwise the old records are unreadable.
+Register Runninggem at https://www.strava.com/settings/api. Configure its authorization callback domain to the deployed hostname. Runninggem uses `APP_URL/api/sync?route=strava-callback`. Users follow Continue with Strava and approve activity access. The web flow lets Strava handle login and consent; opening the native Strava app is not guaranteed on every mobile browser.
 
-## First connection
+Request scopes: read and activity:read_all. Denied activity access does not establish a session. The identity is taken from the server-side token exchange response, never from query parameters. Sign out before switching Strava accounts.
 
-1. Connect an Upstash Redis database through Vercel Marketplace to this project.
-2. Set the application variables above directly in Vercel and redeploy.
-3. Register a Strava application at https://www.strava.com/settings/api and set its authorization callback domain to the deployed hostname. The actual callback route is `/api/sync?route=strava-callback` (handled by the Next.js route).
-4. Open Performance, unlock the owner pilot, and connect Strava. Approve activity access. Import latest and load older history one page at a time (100 activities/page).
-5. Connect Garmin with account credentials and MFA if requested. Credentials are sent to Garmin via the backend and not retained. The encrypted session persists in Redis. Garmin is an unofficial adapter pinned to python-garminconnect 0.3.19.
-6. Import Garmin activities and up to seven recent daily health summaries. Use older history paging for earlier activities.
-7. In Calendar, create a running session, add timed steps and optional pace/HR ranges, review, save, then send to Garmin Connect. Sync the compatible watch through Garmin Connect afterward.
+## Garmin official consent
 
-## Limits
+Apply/register through https://developer.garmin.com/gc-developer-program/overview/ and configure the application's redirect URI as `APP_URL/api/sync?route=garmin-callback`. App registration and API access are required; a user’s approval cannot replace the application's client credentials.
 
-This is a single-owner integration pilot, not multi-athlete SaaS. Sessions use a signed HttpOnly SameSite cookie and a pilot password, with Redis-backed login attempt throttling and exact-origin checks for mutations. Use HTTPS.
+After Strava sign-in, Authorize Garmin Connect redirects the athlete to https://connect.garmin.com/oauth2Confirm. Runninggem uses SHA-256 PKCE, single-use state, the signed browser nonce and a server-only encrypted verifier. After consent it exchanges the code, reads the Garmin user ID and granted permissions, and stores encrypted tokens. Revoke Garmin access calls Garmin’s registration deletion endpoint.
 
-Real imports are shown separately from the synthetic sample plan and performance records. Imported history is encrypted server-side and not put into localStorage; sample feedback remains browser-local. Account disconnect clears that provider’s local imports and session. Strava disconnect also calls Strava deauthorization. Garmin logout removes local session access only; revoke sessions through Garmin account settings if required.
+This is an authorization implementation, not a conversion of the existing unofficial sync adapter to the official APIs. Official activity/health ingestion, callbacks and structured-workout delivery require the registered app's API schemas and enabled products. The UI explicitly distinguishes an authorized official account from an operational experimental sync connection. No official OAuth token is sent to the private Python client. Garmin Starter access may not include historical backfill; verify the plan/access against the pilot's history requirements.
 
-Imports are manual, bounded, and idempotent by source ID. Cross-provider duplicate detection uses sport, start time within 60 seconds, distance within 1%/50m, and duration within 3%/30s. This is a heuristic: pause-time differences may leave duplicates, and very similar simultaneous activities may merge. Raw provider identities remain in the stored records. Reconnecting a different provider account requires disconnecting the old account first.
+Official OAuth reference: https://developerportal.garmin.com/sites/default/files/OAuth2PKCE.pdf. User identity and permissions endpoints follow that specification. Permission lists are displayed as granted rather than assuming every product was approved.
 
-Garmin delivery uses a payload/date hash and persistent upload receipts to avoid duplicate workouts. Ambiguous network failures are marked for manual verification rather than blindly retried. Workout scheduling success means Garmin Connect accepted it, not that the watch received it. Unofficial Garmin endpoints can change or block cloud sessions.
+## Optional experimental Garmin adapter
 
-## Local work and verification
+When explicitly enabled, the preexisting unofficial python-garminconnect adapter retains login/MFA, paginated activity import, seven recent health summaries and workout upload/scheduling. It is separate from official consent, clearly marked experimental, and disabled by default. Its credentials go through the backend to Garmin; session/MFA state is encrypted, temporary MFA state expires, and plaintext credentials are not retained.
 
-`npm ci` then `npm run dev` runs Next.js, React and the TypeScript sync route. `npm start` serves the production build. Use Vercel CLI `vercel dev` to also run Python routes. Install `requirements.txt` for `npm run test:python`.
+## Data isolation and migration
 
-`npm run check`, `npm test`, `npm run test:python`, `npm run build`, `npm run test:web`. All three pages and API error/HTTP boundaries are checked against a real production Next.js server. The provider tests use mocked remote responses and a fake Redis; they do not prove live account connectivity. Live OAuth consent, Redis connectivity, Garmin MFA and watch receipt remain to be checked after provisioning. The available cloud browser could not reach the local preview (connection refused), so the new UI has not been browser-verified.
+Version-2 signed sessions identify the verified Strava athlete. Redis keys use `runninggem:users:strava:<id>:` and never the old shared `runninggem:pilot:` prefix. Existing shared-pilot sessions are rejected. Old pilot records are not automatically attributed to the first social-login user; reconnect and reimport instead. Keep old records for a deliberate owner-reviewed migration or deletion.
+
+A Garmin identity may be linked to one Strava athlete at a time. Revoke it from the original Runninggem account before linking another. Sign out clears the browser's app session; disconnect/revoke removes provider access. These are different actions.
+
+## Verification
+
+Run `npm run check`, `npm test`, `npm run test:python`, `npm run build` and `npm run test:web`. OAuth tests mock the providers and Redis, checking replay/CSRF defenses, consent denial, PKCE, provider identities, permission storage, revocation and concurrent user-data isolation. Production HTTP checks verify pages and the Next.js API boundaries. Live OAuth, device receipt and new React interactions require verification after app credentials and storage are provisioned.

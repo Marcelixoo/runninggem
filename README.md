@@ -25,6 +25,12 @@ npm run build
 npm run test:web
 ```
 
+## Social sign-in and provider consent
+
+Continue with Strava replaces the shared pilot password. OAuth consent creates a signed athlete session; imported history, credentials, workouts and delivery receipts are stored in separate per-athlete namespaces. Garmin authorization uses its official OAuth 2.0 PKCE consent flow and stores the granted permissions. Garmin credentials are never entered into Runninggem for this flow.
+
+Provider client credentials, the session/encryption key and persistent Redis are still required. The official Garmin OAuth grant is separate from the existing unofficial Python sync adapter: it does not make private Garmin endpoints accept official developer tokens. Official data delivery remains pending the registered application's API contracts/access. The optional experimental adapter is disabled by default and can be enabled explicitly. Apple Health remains excluded.
+
 ## Next.js migration (v0.3)
 
 Next.js App Router + React + TypeScript own the app shell, Today (`/`), Calendar (`/calendar`), Performance (`/performance`), workout feedback, connections, history and workout builder. The TypeScript `/api/sync` route exposes the existing tested provider service; reusable model, encryption and storage utilities remain JavaScript with typed model contracts. Garmin stays in `api/garmin.py`.
@@ -35,7 +41,7 @@ GitHub `main` is the deployment source for Vercel. The production build must pas
 
 Strava OAuth import, experimental Garmin login/MFA and history/health import, encrypted server-side storage, duplicate detection, and a timed running-workout builder with pace/HR targets and Garmin calendar delivery are implemented. Connection controls stay within Today, Calendar, and Performance. Apple Health is excluded.
 
-See [deployment and account setup](docs/deployment.md) for required Vercel variables and provider configuration. Live provider access is not yet verified. The integration pilot has one owner account.
+See [deployment and account setup](docs/deployment.md) for required Vercel variables and provider configuration. Live provider access is not yet verified. Provider-backed data is isolated by Strava athlete identity; broader paid-service identity and account-management work remains out of scope.
 
 ## Original athlete view
 

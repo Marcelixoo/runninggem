@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
-const port = 3187;
+const port = 20000 + Math.floor(Math.random()*30000);
 const server = spawn(
   process.execPath,
   [
@@ -16,7 +16,6 @@ const server = spawn(
     env: {
       ...process.env,
       APP_URL: "",
-      PILOT_PASSWORD: "",
       SESSION_SECRET: "",
       UPSTASH_REDIS_REST_URL: "",
       UPSTASH_REDIS_REST_TOKEN: "",
@@ -39,9 +38,11 @@ try {
     ["/calendar", "Your week, laid out."],
     ["/performance", "Progress, at your pace."],
   ]) {
-    const r = await fetch(`http://127.0.0.1:${port}${path}`);
+    const r = await fetch(`http://127.0.0.1:${port}${path}?qa=${Date.now()}`);
     assert.equal(r.status, 200);
     const html = await r.text();
+    assert.ok(!html.includes("Pilot password"));
+    assert.ok(html.includes("Continue with Strava"));
     assert.ok(html.includes(title), `${path} server-rendered title`);
     assert.ok(
       html.includes("Connections &amp; sync"),
