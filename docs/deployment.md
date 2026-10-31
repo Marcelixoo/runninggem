@@ -22,6 +22,8 @@ Set these in Vercel Settings → Environment Variables and redeploy. Use Secret 
 
 Changing SESSION_SECRET invalidates sessions and makes existing encrypted records unreadable. Preserve it across deployments.
 
+Vercel's Upstash integration may supply `KV_REST_API_URL` and `KV_REST_API_TOKEN` instead. Both the Next.js backend and optional Python adapter accept that complete pair; a complete `UPSTASH_REDIS_REST_*` pair takes precedence. Credentials from different pairs are never mixed. `KV_REST_API_READ_ONLY_TOKEN` is insufficient because OAuth needs to write and consume one-time state. Set production `APP_URL` to `https://run.criticalmars.me`; configuration changes require a new deployment.
+
 ## Strava app registration
 
 Register Runninggem at https://www.strava.com/settings/api. Configure its authorization callback domain to the deployed hostname. Runninggem uses `APP_URL/api/sync?route=strava-callback`. Users follow Continue with Strava and approve activity access. The web flow lets Strava handle login and consent; opening the native Strava app is not guaranteed on every mobile browser.
